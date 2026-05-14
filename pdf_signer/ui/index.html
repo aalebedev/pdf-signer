@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Список сертификатов КриптоПро</title>
+    <script src="https://www.cryptopro.ru/sites/default/files/products/cades/cadesplugin_api.js?v=313061"></script>
+</head>
+<body>
+    <div id="cert">Поиск сертификатов...</div>
+    <br>
+    <button id="button" disabled>Подписать</button>
+    <script>
+
+async function getCertificates() {
+    var oStore = await cadesplugin.CreateObjectAsync("CAdESCOM.Store");
+    await oStore.Open(cadesplugin.CAPICOM_CURRENT_USER_STORE, cadesplugin.CAPICOM_MY_STORE, cadesplugin.CAPICOM_STORE_OPEN_MAXIMUM_ALLOWED);
+
+    var oStoreCerts = await oStore.Certificates;
+    var oCertificates = await oStoreCerts.Find(cadesplugin.CAPICOM_CERTIFICATE_FIND_SUBJECT_NAME, "Alexander");
+    var Count = await oCertificates.Count;
+
+    var certList = [];
+
+    for (let i = 0; i < Count; i++) {
+        certList.push(await oCertificates.Item(i + 1));
+    }
+
+    return certList;
+}
+
+async function signHash(hash, cert) {
+    const oHashedData = await cadesplugin.CreateObjectAsync("CAdESCOM.HashedData");
+
+    // Укажите алгоритм (например, ГОСТ Р 34.11-2012 256 бит)
+    await oHashedData.propset_Algorithm(cadesplugin.CADESCOM_HASH_ALGORITHM_CP_GOST_3411_2012_256);
+    await oHashedData.SetHashValue(hash);
+
+    const oSigner = await cadesplugin.CreateObjectAsync("CAdESCOM.CPSigner");
+    await oSigner.propset_Certificate(cert);
+    await oSigner.propset_CheckCertificate(true);
+
+    const oSignedData = await cadesplugin.CreateObjectAsync("CAdESCOM.CadesSignedData");
+
+    // Создаем отсоединенную CMS-подпись (CAdES-BES)
+    const signature = await oSignedData.SignHash(oHashedData, oSigner, cadesplugin.CADESCOM_CADES_BES);
+
+    return signature; // Base64-строка с CMS-контейнером
+}
+
+async function sign(cert) {
+    fetch('http://localhost:8000/prepare/')
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`Ошибка: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(async data => {
+        console.log('/prepare/ data', data);
+
+        const signature = await signHash(data.hash, cert);
+        console.log("signature", signature);
+
+        fetch('http://localhost:8000/sign/', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                start: data.start,
+                end: data.end,
+                signature: signature,
+            })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Ошибка: ${response.status}`);
+            }
+            alert('подписано!');
+        })
+    });
+}
+
+(async () => {
+    await cadesplugin;
+    const certList = await getCertificates();
+
+    if (certList.length > 0) {
+        var optionsHTML = '';
+        for (let i = 0; i < certList.length; i++) {
+            optionsHTML += '<option value=' + i + '>' + await certList[i].SubjectName + '</option>';
+        }
+
+        document.getElementById('cert').innerHTML = 'Сертификат <select id="select_cert">' + optionsHTML + '</select>';
+
+        var button = document.getElementById('button')
+        button.removeAttribute('disabled');
+        button.addEventListener('click', async() => {
+            button.setAttribute('disabled', true);
+
+            var certIndex = document.getElementById('select_cert').value;
+            await sign(certList[certIndex]);
+
+            button.removeAttribute('disabled');
+        });
+    }
+})();
+
+    </script>
+</body>
+</html>
