@@ -6,6 +6,8 @@
     <script src="https://www.cryptopro.ru/sites/default/files/products/cades/cadesplugin_api.js?v=313061"></script>
 </head>
 <body>
+    <select id="select_file" size="10"></select>
+    <br><br>
     <div id="cert">Поиск сертификатов...</div>
     <br>
     <button id="button" disabled>Подписать</button>
@@ -47,8 +49,12 @@ async function signHash(hash, cert) {
     return signature; // Base64-строка с CMS-контейнером
 }
 
-async function sign(cert) {
-    fetch('http://localhost:8000/prepare/')
+async function sign(file, cert) {
+    fetch('http://localhost:8000/prepare/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({file: file})
+    })
     .then(response => {
         if (!response.ok) {
             throw new Error(`Ошибка: ${response.status}`);
@@ -65,6 +71,7 @@ async function sign(cert) {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
+                file: file,
                 start: data.start,
                 end: data.end,
                 signature: signature,
@@ -74,12 +81,34 @@ async function sign(cert) {
             if (!response.ok) {
                 throw new Error(`Ошибка: ${response.status}`);
             }
+            LoadFiles();
             alert('подписано!');
         })
     });
 }
 
+async function LoadFiles() {
+    fetch('http://localhost:8000/files/')
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`Ошибка: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(async data => {
+        var optionsHTML = '';
+
+        for (let i = 0; i < data["files"].length; i++) {
+            var file = data["files"][i];
+            optionsHTML += '<option value=' + file + '>' + file + '</option>';
+        }
+        document.getElementById('select_file').innerHTML = optionsHTML;
+    });
+}
+
 (async () => {
+    await LoadFiles();
+
     await cadesplugin;
     const certList = await getCertificates();
 
@@ -96,8 +125,9 @@ async function sign(cert) {
         button.addEventListener('click', async() => {
             button.setAttribute('disabled', true);
 
+            var file = document.getElementById('select_file').value;
             var certIndex = document.getElementById('select_cert').value;
-            await sign(certList[certIndex]);
+            await sign(file, certList[certIndex]);
 
             button.removeAttribute('disabled');
         });
